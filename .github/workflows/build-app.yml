@@ -1,0 +1,60 @@
+name: Build App
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch, tag, or commit SHA to build"
+        required: true
+        default: "release"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build macOS app
+    runs-on: macos-latest
+
+    env:
+      APP_NAME: Peeky
+      BUILD_REF: ${{ inputs.source_ref }}
+
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build app
+        run: scripts/build-app.sh
+
+      - name: Package app
+        id: package
+        run: |
+          set -euo pipefail
+
+          safe_ref="$(printf '%s' "$BUILD_REF" | tr '/:@' '---' | tr -cd 'A-Za-z0-9._-')"
+          if [ -z "$safe_ref" ]; then
+            safe_ref="ref"
+          fi
+
+          artifact_name="${APP_NAME}-${safe_ref}"
+          zip_path="artifacts/${artifact_name}.zip"
+
+          mkdir -p artifacts
+          ditto -c -k --keepParent ".build/${APP_NAME}.app" "$zip_path"
+
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
