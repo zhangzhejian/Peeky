@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Peeky app icon</title>
+  <desc id="desc">A rounded macOS app icon showing a developer text file with a peeking eye.</desc>
+  <defs>
+    <linearGradient id="tile" x1="172" y1="88" x2="852" y2="936" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF3DE"/>
+      <stop offset="0.54" stop-color="#BFEDE3"/>
+      <stop offset="1" stop-color="#62B8B1"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="324" y1="190" x2="734" y2="830" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF7F5"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="642" y1="210" x2="746" y2="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#DFF6EF"/>
+      <stop offset="1" stop-color="#A7DDD5"/>
+    </linearGradient>
+    <radialGradient id="iris" cx="0" cy="0" r="1" gradientTransform="matrix(84 0 0 84 512 526)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B8FFF1"/>
+      <stop offset="0.58" stop-color="#18B49E"/>
+      <stop offset="1" stop-color="#08796F"/>
+    </radialGradient>
+    <filter id="tileShadow" x="20" y="16" width="984" height="1004" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="28" stdDeviation="36" flood-color="#184541" flood-opacity="0.24"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#184541" flood-opacity="0.18"/>
+    </filter>
+    <filter id="paperShadow" x="204" y="134" width="620" height="740" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1A3533" flood-opacity="0.20"/>
+    </filter>
+  </defs>
+
+  <rect x="76" y="60" width="872" height="904" rx="210" fill="url(#tile)" filter="url(#tileShadow)"/>
+  <path d="M196 825C309 738 393 699 496 699C632 699 717 766 834 689V782C834 848 780 902 714 902H310C247 902 196 851 196 825Z" fill="#FFF6E7" opacity="0.32"/>
+  <circle cx="815" cy="221" r="78" fill="#F06F42" opacity="0.86"/>
+  <circle cx="212" cy="306" r="38" fill="#FFFFFF" opacity="0.44"/>
+
+  <g filter="url(#paperShadow)">
+    <path d="M292 184H635L768 317V776C768 820 732 856 688 856H336C292 856 256 820 256 776V220C256 200 272 184 292 184Z" fill="url(#paper)"/>
+    <path d="M635 184V282C635 301 651 317 670 317H768L635 184Z" fill="url(#fold)"/>
+    <path d="M292 184H635L768 317V776C768 820 732 856 688 856H336C292 856 256 820 256 776V220C256 200 272 184 292 184Z" fill="none" stroke="#173232" stroke-width="28" stroke-linejoin="round"/>
+    <path d="M635 184V282C635 301 651 317 670 317H768" fill="none" stroke="#173232" stroke-width="28" stroke-linejoin="round"/>
+  </g>
+
+  <rect x="332" y="325" width="188" height="28" rx="14" fill="#16A889"/>
+  <rect x="332" y="381" width="292" height="24" rx="12" fill="#173232" opacity="0.88"/>
+  <rect x="332" y="432" width="170" height="24" rx="12" fill="#EF7A42"/>
+  <rect x="526" y="432" width="102" height="24" rx="12" fill="#173232" opacity="0.34"/>
+
+  <path d="M312 550C361 466 438 424 512 424C586 424 663 466 712 550C663 634 586 676 512 676C438 676 361 634 312 550Z" fill="#EFFFFA" stroke="#173232" stroke-width="28" stroke-linejoin="round"/>
+  <circle cx="512" cy="550" r="84" fill="url(#iris)" stroke="#173232" stroke-width="24"/>
+  <circle cx="512" cy="550" r="34" fill="#173232"/>
+  <circle cx="482" cy="519" r="18" fill="#FFFFFF"/>
+
+  <path d="M407 745L352 704L407 663" fill="none" stroke="#16A889" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M617 663L672 704L617 745" fill="none" stroke="#EF7A42" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M540 662L486 748" fill="none" stroke="#173232" stroke-width="26" stroke-linecap="round"/>
+</svg>
