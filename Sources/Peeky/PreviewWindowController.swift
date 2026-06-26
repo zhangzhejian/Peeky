@@ -7,6 +7,7 @@ private struct PreviewTab {
     var document: LoadedText?
     var errorMessage: String?
     var mode: PreviewMode
+    var collapseNestedJSON: Bool
     var targetLine: Int?
     var targetColumn: Int?
 
@@ -16,6 +17,7 @@ private struct PreviewTab {
         self.document = document
         self.errorMessage = errorMessage
         self.mode = .formatted
+        self.collapseNestedJSON = false
         self.targetLine = nil
         self.targetColumn = nil
     }
@@ -268,11 +270,13 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     private let titleLabel = NSTextField(labelWithString: "Peeky")
     private let metaLabel = NSTextField(labelWithString: "")
     private let modeControl = NSSegmentedControl(labels: ["Format", "Raw"], trackingMode: .selectOne, target: nil, action: nil)
+    private let foldButton = NSButton()
     private let wrapButton = NSButton()
     private let copyButton = NSButton()
     private let revealButton = NSButton()
     private let openButton = NSButton()
     private let scrollView = DropScrollView()
+    private let gutterView = PreviewGutterView()
     private let textView = DropTextView()
     private let emptyView = NSStackView()
 
@@ -541,12 +545,19 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         modeControl.selectedSegment = PreviewMode.formatted.rawValue
         modeControl.segmentStyle = .texturedRounded
 
+        configureIconButton(
+            foldButton,
+            symbol: "arrow.down.right.and.arrow.up.left",
+            tooltip: "Collapse nested JSON",
+            action: #selector(toggleJSONFolding(_:))
+        )
+        foldButton.setButtonType(.toggle)
         configureIconButton(wrapButton, symbol: "text.alignleft", tooltip: "Toggle line wrap", action: #selector(toggleWrap(_:)))
         configureIconButton(copyButton, symbol: "doc.on.doc", tooltip: "Copy", action: #selector(copyPreview(_:)))
         configureIconButton(revealButton, symbol: "magnifyingglass", tooltip: "Reveal in Finder", action: #selector(revealInFinder(_:)))
         configureIconButton(openButton, symbol: "folder", tooltip: "Open", action: #selector(openClicked(_:)))
 
-        let controls = NSStackView(views: [modeControl, wrapButton, copyButton, revealButton, openButton])
+        let controls = NSStackView(views: [modeControl, foldButton, wrapButton, copyButton, revealButton, openButton])
         controls.orientation = .horizontal
         controls.alignment = .centerY
         controls.spacing = 8
@@ -564,6 +575,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
             headerStack.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -14),
             headerStack.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
+            foldButton.widthAnchor.constraint(equalToConstant: 30),
             wrapButton.widthAnchor.constraint(equalToConstant: 30),
             copyButton.widthAnchor.constraint(equalToConstant: 30),
             revealButton.widthAnchor.constraint(equalToConstant: 30),
@@ -577,6 +589,8 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = false
         scrollView.onDropFiles = { [weak self] urls in
             self?.onURLsDropped?(urls)
         }
@@ -607,6 +621,8 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         }
 
         scrollView.documentView = textView
+        gutterView.clientView = textView
+        scrollView.verticalRulerView = gutterView
     }
 
     private func setupEmptyView() {
@@ -751,7 +767,13 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         window?.representedURL = tab.url
 
         if let document = tab.document {
-            render(document: document, mode: tab.mode, targetLine: tab.targetLine, tabID: tab.id)
+            render(
+                document: document,
+                mode: tab.mode,
+                collapseNestedJSON: tab.collapseNestedJSON,
+                targetLine: tab.targetLine,
+                tabID: tab.id
+            )
         } else {
             renderError(message: tab.errorMessage ?? "Open failed", url: tab.url)
         }
@@ -759,13 +781,31 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         clearTargetPosition(for: tab.id)
     }
 
-    private func render(document: LoadedText, mode: PreviewMode, targetLine: Int?, tabID: UUID) {
+    private func render(
+        document: LoadedText,
+        mode: PreviewMode,
+        collapseNestedJSON: Bool,
+        targetLine: Int?,
+        tabID: UUID
+    ) {
         modeControl.selectedSegment = mode.rawValue
         modeControl.isEnabled = document.kind.hasFormattedPreview
         modeControl.setLabel(document.kind == .markdown ? "Preview" : "Format", forSegment: 0)
 
-        let rendered = PreviewRenderer.render(document: document, mode: mode)
+        let canFoldJSON = (document.kind == .json || document.kind == .jsonl) && mode == .formatted
+        foldButton.isEnabled = canFoldJSON
+        foldButton.state = collapseNestedJSON && canFoldJSON ? .on : .off
+        foldButton.toolTip = collapseNestedJSON && canFoldJSON
+            ? "Expand nested JSON"
+            : "Collapse nested JSON"
+
+        let rendered = PreviewRenderer.render(
+            document: document,
+            mode: mode,
+            collapseNestedJSON: collapseNestedJSON && canFoldJSON
+        )
         textView.textStorage?.setAttributedString(rendered.attributedText)
+        applyDisplayMetadata(rendered.display)
         if document.kind == .markdown {
             rebuildMarkdownOutline(rendered.outline)
         } else {
@@ -794,20 +834,30 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         copyButton.isEnabled = true
         showPreviewState()
         applyLineWrapping()
-        scheduleInitialScroll(targetLine: targetLine, tabID: tabID)
+        let targetLocation = targetLine.flatMap { rendered.display.targetLocationsByOriginalLine[$0] }
+        scheduleInitialScroll(targetLine: targetLine, targetLocation: targetLocation, tabID: tabID)
     }
 
     private func renderError(message: String, url: URL) {
         titleLabel.stringValue = url.lastPathComponent
         metaLabel.stringValue = "Open failed"
         modeControl.isEnabled = false
+        foldButton.isEnabled = false
+        foldButton.state = .off
         revealButton.isEnabled = true
         copyButton.isEnabled = true
 
         textView.textStorage?.setAttributedString(SyntaxHighlighter.monospace(message))
+        applyDisplayMetadata(.plain)
         clearMarkdownOutline()
         showPreviewState()
         applyLineWrapping()
+    }
+
+    private func applyDisplayMetadata(_ display: PreviewDisplayMetadata) {
+        gutterView.configuration = display.gutter
+        scrollView.rulersVisible = display.gutter.isVisible
+        textView.overlayConfiguration = display.textOverlay
     }
 
     private func clearTargetPosition(for tabID: UUID) {
@@ -816,11 +866,13 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         tabs[index].targetColumn = nil
     }
 
-    private func scheduleInitialScroll(targetLine: Int?, tabID: UUID) {
+    private func scheduleInitialScroll(targetLine: Int?, targetLocation: Int?, tabID: UUID) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.activeTabID == tabID else { return }
 
-            if let targetLine {
+            if let targetLocation {
+                self.scrollToCharacterLocation(targetLocation)
+            } else if let targetLine {
                 self.scrollToLine(targetLine)
             } else {
                 let topRange = NSRange(location: 0, length: 0)
@@ -886,10 +938,13 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         emptyView.isHidden = false
         scrollView.isHidden = true
         modeControl.isEnabled = false
+        foldButton.isEnabled = false
+        foldButton.state = .off
         revealButton.isEnabled = false
         copyButton.isEnabled = false
         metaLabel.stringValue = ""
         textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
+        applyDisplayMetadata(.plain)
         clearMarkdownOutline()
     }
 
@@ -943,6 +998,19 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     @objc private func modeChanged(_ sender: NSSegmentedControl) {
         guard let index = activeTabIndex else { return }
         tabs[index].mode = PreviewMode(rawValue: sender.selectedSegment) ?? .formatted
+        renderActiveTab()
+    }
+
+    @objc private func toggleJSONFolding(_ sender: Any?) {
+        guard
+            let index = activeTabIndex,
+            let document = tabs[index].document,
+            document.kind == .json || document.kind == .jsonl
+        else {
+            return
+        }
+
+        tabs[index].collapseNestedJSON.toggle()
         renderActiveTab()
     }
 

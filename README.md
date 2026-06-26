@@ -7,6 +7,7 @@ Peeky is a native macOS read-only preview app for developer-facing text formats.
 - Fast text loading with an 80 MB preview cap for very large files.
 - Markdown preview with native attributed text rendering for headings, tables, lists, quotes, links, code, and a clickable heading outline.
 - JSON, JSONL, XML, and plist formatting with lightweight syntax highlighting.
+- JSON/JSONL line gutters, JSONL record boundaries, invalid-line markers, indent guides, and nested-container folding.
 - Raw/format toggle, line wrap toggle, copy, reveal in Finder, and multi-file tabs.
 - Finder document type registration when packaged as an app bundle.
 
