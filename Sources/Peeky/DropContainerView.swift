@@ -261,6 +261,11 @@ final class DropScrollView: NSScrollView {
 final class DropTextView: NSTextView {
     var onDropFiles: (([URL]) -> Void)?
     var onFileDragActiveChanged: ((Bool) -> Void)?
+    var overlayConfiguration = PreviewTextOverlayConfiguration.hidden {
+        didSet {
+            needsDisplay = true
+        }
+    }
 
     convenience init() {
         self.init(frame: .zero)
@@ -303,5 +308,145 @@ final class DropTextView: NSTextView {
             onActiveChanged: onFileDragActiveChanged,
             onDropFiles: onDropFiles
         )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawRecordSeparators()
+        drawIndentGuides()
+        drawRecordAnnotations()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    private func drawRecordSeparators() {
+        guard !overlayConfiguration.recordSeparatorLocations.isEmpty else { return }
+
+        let path = NSBezierPath()
+        path.lineWidth = 1
+
+        for location in overlayConfiguration.recordSeparatorLocations {
+            guard let rects = lineRects(forCharacterLocation: location) else { continue }
+            let y = max(rects.lineRect.minY - 7, bounds.minY)
+            path.move(to: NSPoint(x: textContainerOrigin.x, y: y))
+            path.line(to: NSPoint(x: bounds.maxX - 12, y: y))
+        }
+
+        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
+        path.stroke()
+    }
+
+    private func drawIndentGuides() {
+        guard
+            overlayConfiguration.showsIndentGuides,
+            let layoutManager,
+            let textContainer,
+            let textStorage,
+            textStorage.length > 0
+        else {
+            return
+        }
+
+        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        guard visibleGlyphRange.length > 0 else { return }
+
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let spaceWidth = " ".size(withAttributes: [.font: font]).width
+        let text = string as NSString
+        let path = NSBezierPath()
+        path.lineWidth = 1
+
+        var glyphIndex = visibleGlyphRange.location
+        while glyphIndex < NSMaxRange(visibleGlyphRange) {
+            var lineGlyphRange = NSRange()
+            let lineRect = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphIndex,
+                effectiveRange: &lineGlyphRange,
+                withoutAdditionalLayout: true
+            )
+            let charRange = layoutManager.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+            let line = text.substring(with: charRange)
+            let leadingSpaces = countLeadingSpaces(in: line)
+
+            if leadingSpaces >= 2 {
+                let yStart = textContainerOrigin.y + lineRect.minY + 1
+                let yEnd = textContainerOrigin.y + lineRect.maxY - 1
+
+                for level in stride(from: 2, through: leadingSpaces, by: 2) {
+                    let x = textContainerOrigin.x + CGFloat(level) * spaceWidth - spaceWidth / 2
+                    path.move(to: NSPoint(x: x, y: yStart))
+                    path.line(to: NSPoint(x: x, y: yEnd))
+                }
+            }
+
+            glyphIndex = NSMaxRange(lineGlyphRange)
+        }
+
+        NSColor.separatorColor.withAlphaComponent(0.38).setStroke()
+        path.stroke()
+    }
+
+    private func drawRecordAnnotations() {
+        guard !overlayConfiguration.recordAnnotations.isEmpty else { return }
+
+        for annotation in overlayConfiguration.recordAnnotations {
+            guard let rects = lineRects(forCharacterLocation: annotation.characterLocation) else { continue }
+
+            let font = NSFont.systemFont(ofSize: 11, weight: annotation.isWarning ? .semibold : .regular)
+            let color = annotation.isWarning ? NSColor.systemRed : NSColor.secondaryLabelColor
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: color
+            ]
+            let size = annotation.text.size(withAttributes: attributes)
+            let x = rects.usedRect.maxX + 18
+            guard x + size.width + 12 < visibleRect.maxX else { continue }
+
+            let y = rects.lineRect.minY + max(0, (rects.lineRect.height - size.height) / 2)
+            annotation.text.draw(at: NSPoint(x: x, y: y), withAttributes: attributes)
+        }
+    }
+
+    private func lineRects(forCharacterLocation location: Int) -> (lineRect: NSRect, usedRect: NSRect)? {
+        guard
+            let layoutManager,
+            let textStorage,
+            textStorage.length > 0
+        else {
+            return nil
+        }
+
+        let characterLocation = min(max(location, 0), textStorage.length - 1)
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterLocation)
+
+        var lineGlyphRange = NSRange()
+        let lineRect = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphIndex,
+            effectiveRange: &lineGlyphRange,
+            withoutAdditionalLayout: true
+        ).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        let usedRect = layoutManager.lineFragmentUsedRect(
+            forGlyphAt: glyphIndex,
+            effectiveRange: nil,
+            withoutAdditionalLayout: true
+        ).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+
+        guard visibleRect.intersects(lineRect.insetBy(dx: -1, dy: -12)) else { return nil }
+        return (lineRect, usedRect)
+    }
+
+    private func countLeadingSpaces(in line: String) -> Int {
+        var count = 0
+        for scalar in line.unicodeScalars {
+            if scalar == " " {
+                count += 1
+            } else {
+                break
+            }
+        }
+        return count
     }
 }
