@@ -93,6 +93,9 @@ private final class FileTabView: NSControl {
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowStack)
 
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+
         NSLayoutConstraint.activate([
             rowStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             rowStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
@@ -103,7 +106,7 @@ private final class FileTabView: NSControl {
             iconView.heightAnchor.constraint(equalToConstant: 18),
             closeButton.widthAnchor.constraint(equalToConstant: 20),
             closeButton.heightAnchor.constraint(equalToConstant: 20),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 46)
+            heightAnchor.constraint(equalToConstant: 46)
         ])
 
         updateAppearance()
@@ -186,19 +189,22 @@ private final class MarkdownOutlineItemView: NSControl {
         layer?.masksToBounds = true
 
         titleLabel.stringValue = item.title.isEmpty ? "Untitled heading" : item.title
-        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: level <= 2 ? .semibold : .regular)
+        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: level == 1 ? .semibold : .regular)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.toolTip = item.title
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
-        let leadingInset = 6 + CGFloat(level - 1) * 10
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+
+        let leadingInset = 24 + CGFloat(level - 1) * 10
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 26)
+            heightAnchor.constraint(equalToConstant: 24)
         ])
 
         updateAppearance()
@@ -244,6 +250,7 @@ private final class MarkdownOutlineItemView: NSControl {
         layer?.backgroundColor = isHovering
             ? NSColor.labelColor.withAlphaComponent(0.06).cgColor
             : NSColor.clear.cgColor
+        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: level == 1 ? .semibold : .regular)
         titleLabel.textColor = isHovering || level <= 2 ? .labelColor : .secondaryLabelColor
     }
 }
@@ -259,9 +266,6 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     private let tabListDocumentView = DropContainerView()
     private let sidebarStack = NSStackView()
     private let tabStack = NSStackView()
-    private let outlineSectionStack = NSStackView()
-    private let outlineSeparator = NSBox()
-    private let outlineHeaderLabel = NSTextField(labelWithString: "Contents")
     private let outlineStack = NSStackView()
     private let contentView = DropContainerView()
     private let headerView = DropHeaderView()
@@ -280,6 +284,8 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     private var activeTabID: UUID?
     private var wrapsLines = true
     private var sidebarWidthConstraint: NSLayoutConstraint?
+    private var outlineStackWidthConstraint: NSLayoutConstraint?
+    private var outlineStackHeightConstraint: NSLayoutConstraint?
 
     var isEmpty: Bool {
         tabs.isEmpty
@@ -453,39 +459,37 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
 
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .width
+        sidebarStack.distribution = .fill
         sidebarStack.spacing = 10
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
+        sidebarStack.detachesHiddenViews = true
+        sidebarStack.setHuggingPriority(.required, for: .vertical)
+        sidebarStack.setContentCompressionResistancePriority(.required, for: .vertical)
         tabListDocumentView.addSubview(sidebarStack)
 
         tabStack.orientation = .vertical
         tabStack.alignment = .width
-        tabStack.spacing = 4
+        tabStack.distribution = .fill
+        tabStack.spacing = 3
         tabStack.translatesAutoresizingMaskIntoConstraints = false
+        tabStack.setHuggingPriority(.required, for: .vertical)
+        tabStack.setContentCompressionResistancePriority(.required, for: .vertical)
         sidebarStack.addArrangedSubview(tabStack)
-
-        outlineSeparator.boxType = .separator
-        outlineSeparator.translatesAutoresizingMaskIntoConstraints = false
-
-        outlineHeaderLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        outlineHeaderLabel.textColor = .secondaryLabelColor
-        outlineHeaderLabel.lineBreakMode = .byTruncatingTail
-        outlineHeaderLabel.maximumNumberOfLines = 1
 
         outlineStack.orientation = .vertical
         outlineStack.alignment = .width
-        outlineStack.spacing = 2
+        outlineStack.distribution = .fill
+        outlineStack.spacing = 1
         outlineStack.translatesAutoresizingMaskIntoConstraints = false
-
-        outlineSectionStack.orientation = .vertical
-        outlineSectionStack.alignment = .width
-        outlineSectionStack.spacing = 6
-        outlineSectionStack.translatesAutoresizingMaskIntoConstraints = false
-        outlineSectionStack.isHidden = true
-        outlineSectionStack.addArrangedSubview(outlineSeparator)
-        outlineSectionStack.addArrangedSubview(outlineHeaderLabel)
-        outlineSectionStack.addArrangedSubview(outlineStack)
-        sidebarStack.addArrangedSubview(outlineSectionStack)
+        outlineStack.setHuggingPriority(.required, for: .vertical)
+        outlineStack.setContentCompressionResistancePriority(.required, for: .vertical)
         sidebarScrollView.documentView = tabListDocumentView
+
+        let sidebarStackTrailingConstraint = sidebarStack.trailingAnchor.constraint(
+            equalTo: tabListDocumentView.trailingAnchor,
+            constant: -8
+        )
+        sidebarStackTrailingConstraint.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
             sidebarScrollView.topAnchor.constraint(equalTo: sidebarView.topAnchor, constant: 8),
@@ -500,10 +504,9 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
 
             sidebarStack.topAnchor.constraint(equalTo: tabListDocumentView.topAnchor, constant: 2),
             sidebarStack.leadingAnchor.constraint(equalTo: tabListDocumentView.leadingAnchor, constant: 8),
-            sidebarStack.trailingAnchor.constraint(equalTo: tabListDocumentView.trailingAnchor, constant: -8),
+            sidebarStackTrailingConstraint,
             sidebarStack.bottomAnchor.constraint(lessThanOrEqualTo: tabListDocumentView.bottomAnchor, constant: -2),
-
-            outlineSeparator.heightAnchor.constraint(equalToConstant: 1)
+            tabStack.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor)
         ])
     }
 
@@ -648,6 +651,8 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func rebuildTabList() {
+        clearMarkdownOutline()
+
         for view in tabStack.arrangedSubviews {
             tabStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -688,15 +693,46 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
             itemView.widthAnchor.constraint(equalTo: outlineStack.widthAnchor).isActive = true
         }
 
-        outlineSectionStack.isHidden = false
+        insertMarkdownOutlineUnderActiveTab()
+        sidebarStack.needsLayout = true
+        tabListDocumentView.needsLayout = true
+        sidebarScrollView.reflectScrolledClipView(sidebarScrollView.contentView)
     }
 
     private func clearMarkdownOutline() {
+        if outlineStack.superview != nil {
+            tabStack.removeArrangedSubview(outlineStack)
+            outlineStackWidthConstraint?.isActive = false
+            outlineStackWidthConstraint = nil
+            outlineStackHeightConstraint?.isActive = false
+            outlineStackHeightConstraint = nil
+            outlineStack.removeFromSuperview()
+        }
+
         for view in outlineStack.arrangedSubviews {
             outlineStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        outlineSectionStack.isHidden = true
+
+        sidebarStack.needsLayout = true
+        tabListDocumentView.needsLayout = true
+    }
+
+    private func insertMarkdownOutlineUnderActiveTab() {
+        guard let activeTabIndex else { return }
+
+        let insertIndex = min(activeTabIndex + 1, tabStack.arrangedSubviews.count)
+        tabStack.insertArrangedSubview(outlineStack, at: insertIndex)
+
+        let widthConstraint = outlineStack.widthAnchor.constraint(equalTo: tabStack.widthAnchor)
+        widthConstraint.isActive = true
+        outlineStackWidthConstraint = widthConstraint
+
+        let itemCount = outlineStack.arrangedSubviews.count
+        let height = CGFloat(itemCount * 24) + CGFloat(max(itemCount - 1, 0)) * outlineStack.spacing
+        let heightConstraint = outlineStack.heightAnchor.constraint(equalToConstant: height)
+        heightConstraint.isActive = true
+        outlineStackHeightConstraint = heightConstraint
     }
 
     private func updateSidebarVisibility() {
@@ -762,7 +798,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     private func render(document: LoadedText, mode: PreviewMode, targetLine: Int?, tabID: UUID) {
         modeControl.selectedSegment = mode.rawValue
         modeControl.isEnabled = document.kind.hasFormattedPreview
-        modeControl.setLabel(document.kind == .markdown ? "Preview" : "Format", forSegment: 0)
+        modeControl.setLabel(document.kind.formattedModeLabel, forSegment: 0)
 
         let rendered = PreviewRenderer.render(document: document, mode: mode)
         textView.textStorage?.setAttributedString(rendered.attributedText)

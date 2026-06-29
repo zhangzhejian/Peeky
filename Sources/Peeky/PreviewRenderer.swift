@@ -101,6 +101,11 @@ enum PreviewRenderer {
                     note: "Invalid plist"
                 )
             }
+        case .source(let language):
+            return RenderedPreview(
+                attributedText: SyntaxHighlighter.highlightSource(document.text, language: language),
+                note: SyntaxHighlighter.canHighlight(document.text) ? "Highlighted" : "Highlight skipped for large file"
+            )
         case .yaml, .csv, .log, .text:
             return renderRaw(document)
         }
@@ -112,6 +117,8 @@ enum PreviewRenderer {
             return RenderedPreview(attributedText: SyntaxHighlighter.highlightJSON(document.text), note: "Raw")
         case .xml, .plist:
             return RenderedPreview(attributedText: SyntaxHighlighter.highlightXML(document.text), note: "Raw")
+        case .source:
+            return RenderedPreview(attributedText: SyntaxHighlighter.monospace(document.text), note: "Raw")
         default:
             return RenderedPreview(attributedText: SyntaxHighlighter.monospace(document.text), note: "Raw")
         }

@@ -9,6 +9,7 @@ enum FileKind: Equatable {
     case plist
     case csv
     case log
+    case source(SourceLanguage)
     case text
 
     var displayName: String {
@@ -21,16 +22,28 @@ enum FileKind: Equatable {
         case .plist: "Property List"
         case .csv: "CSV"
         case .log: "Log"
+        case .source(let language): language.displayName
         case .text: "Text"
         }
     }
 
     var hasFormattedPreview: Bool {
         switch self {
-        case .markdown, .json, .jsonl, .xml, .plist:
+        case .markdown, .json, .jsonl, .xml, .plist, .source:
             true
         case .yaml, .csv, .log, .text:
             false
+        }
+    }
+
+    var formattedModeLabel: String {
+        switch self {
+        case .markdown:
+            "Preview"
+        case .source:
+            "Highlight"
+        default:
+            "Format"
         }
     }
 
@@ -56,6 +69,10 @@ enum FileKind: Equatable {
             return .log
         default:
             break
+        }
+
+        if let language = SourceLanguage.detect(url: url, text: text) {
+            return .source(language)
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
