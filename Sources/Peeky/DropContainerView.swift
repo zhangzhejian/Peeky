@@ -59,6 +59,9 @@ enum FileDropSupport {
 final class DropWindow: NSWindow {
     var onDropFiles: (([URL]) -> Void)?
     var onFileDragActiveChanged: ((Bool) -> Void)?
+    var onZoomInRequested: (() -> Void)?
+    var onZoomOutRequested: (() -> Void)?
+    var onResetZoomRequested: (() -> Void)?
 
     override init(
         contentRect: NSRect,
@@ -92,6 +95,31 @@ final class DropWindow: NSWindow {
             onActiveChanged: onFileDragActiveChanged,
             onDropFiles: onDropFiles
         )
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command),
+              !flags.contains(.control),
+              !flags.contains(.option) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        let characters = [event.charactersIgnoringModifiers, event.characters].compactMap { $0 }
+        if characters.contains("=") || characters.contains("+") {
+            onZoomInRequested?()
+            return true
+        }
+        if characters.contains("-") {
+            onZoomOutRequested?()
+            return true
+        }
+        if characters.contains("0") {
+            onResetZoomRequested?()
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 }
 

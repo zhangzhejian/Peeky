@@ -40,6 +40,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showOpenPanel()
     }
 
+    @objc private func zoomInPreview(_ sender: Any?) {
+        currentWindowController()?.zoomInPreview(sender)
+    }
+
+    @objc private func zoomOutPreview(_ sender: Any?) {
+        currentWindowController()?.zoomOutPreview(sender)
+    }
+
+    @objc private func resetPreviewZoom(_ sender: Any?) {
+        currentWindowController()?.resetPreviewZoom(sender)
+    }
+
+    @objc private func refreshPreview(_ sender: Any?) {
+        currentWindowController()?.refreshActiveTab(sender)
+    }
+
     private func buildMainMenu() {
         let mainMenu = NSMenu()
 
@@ -80,6 +96,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+
+        let viewMenu = NSMenu(title: "View")
+        viewMenuItem.submenu = viewMenu
+
+        let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshPreview(_:)), keyEquivalent: "r")
+        refreshItem.target = self
+        viewMenu.addItem(refreshItem)
+        viewMenu.addItem(.separator())
+
+        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(zoomInPreview(_:)), keyEquivalent: "+")
+        zoomInItem.target = self
+        viewMenu.addItem(zoomInItem)
+
+        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(zoomOutPreview(_:)), keyEquivalent: "-")
+        zoomOutItem.target = self
+        viewMenu.addItem(zoomOutItem)
+
+        let actualSizeItem = NSMenuItem(title: "Actual Size", action: #selector(resetPreviewZoom(_:)), keyEquivalent: "0")
+        actualSizeItem.target = self
+        viewMenu.addItem(actualSizeItem)
+
         NSApp.mainMenu = mainMenu
     }
 
@@ -116,6 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func targetWindowController() -> PreviewWindowController {
+        currentWindowController() ?? makeWindowController()
+    }
+
+    private func currentWindowController() -> PreviewWindowController? {
         if let keyWindowController = windows.first(where: { $0.window?.isKeyWindow == true }) {
             return keyWindowController
         }
@@ -128,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return existingWindowController
         }
 
-        return makeWindowController()
+        return nil
     }
 
     private func makeWindowController() -> PreviewWindowController {

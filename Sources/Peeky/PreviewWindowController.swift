@@ -274,15 +274,22 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     private let modeControl = NSSegmentedControl(labels: ["Format", "Raw"], trackingMode: .selectOne, target: nil, action: nil)
     private let wrapButton = NSButton()
     private let copyButton = NSButton()
+    private let refreshButton = NSButton()
     private let revealButton = NSButton()
     private let openButton = NSButton()
     private let scrollView = DropScrollView()
     private let textView = DropTextView()
     private let emptyView = NSStackView()
+    private let baseTextInset = NSSize(width: 18, height: 16)
+    private let maxReadableLineWidth: CGFloat = 980
+    private let minPreviewFontScale: CGFloat = 0.75
+    private let maxPreviewFontScale: CGFloat = 2.4
+    private let previewFontScaleStep: CGFloat = 1.12
 
     private var tabs: [PreviewTab] = []
     private var activeTabID: UUID?
     private var wrapsLines = true
+    private var previewFontScale: CGFloat = 1
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var outlineStackWidthConstraint: NSLayoutConstraint?
     private var outlineStackHeightConstraint: NSLayoutConstraint?
@@ -357,6 +364,10 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         onClose?()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        applyLineWrapping()
+    }
+
     private func setupUI() {
         guard let window else { return }
 
@@ -416,6 +427,15 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
             }
             dropWindow.onFileDragActiveChanged = { [weak self] active in
                 self?.rootView.setDropHighlight(active)
+            }
+            dropWindow.onZoomInRequested = { [weak self] in
+                self?.zoomInPreview(nil)
+            }
+            dropWindow.onZoomOutRequested = { [weak self] in
+                self?.zoomOutPreview(nil)
+            }
+            dropWindow.onResetZoomRequested = { [weak self] in
+                self?.resetPreviewZoom(nil)
             }
         }
 
@@ -546,10 +566,11 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
 
         configureIconButton(wrapButton, symbol: "text.alignleft", tooltip: "Toggle line wrap", action: #selector(toggleWrap(_:)))
         configureIconButton(copyButton, symbol: "doc.on.doc", tooltip: "Copy", action: #selector(copyPreview(_:)))
+        configureIconButton(refreshButton, symbol: "arrow.clockwise", tooltip: "Refresh from Disk", action: #selector(refreshActiveTab(_:)))
         configureIconButton(revealButton, symbol: "magnifyingglass", tooltip: "Reveal in Finder", action: #selector(revealInFinder(_:)))
         configureIconButton(openButton, symbol: "folder", tooltip: "Open", action: #selector(openClicked(_:)))
 
-        let controls = NSStackView(views: [modeControl, wrapButton, copyButton, revealButton, openButton])
+        let controls = NSStackView(views: [modeControl, wrapButton, copyButton, refreshButton, revealButton, openButton])
         controls.orientation = .horizontal
         controls.alignment = .centerY
         controls.spacing = 8
@@ -569,6 +590,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
 
             wrapButton.widthAnchor.constraint(equalToConstant: 30),
             copyButton.widthAnchor.constraint(equalToConstant: 30),
+            refreshButton.widthAnchor.constraint(equalToConstant: 30),
             revealButton.widthAnchor.constraint(equalToConstant: 30),
             openButton.widthAnchor.constraint(equalToConstant: 30)
         ])
@@ -593,10 +615,11 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         textView.allowsUndo = false
         textView.drawsBackground = true
         textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 18, height: 16)
+        textView.textContainerInset = baseTextInset
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(
             width: scrollView.contentSize.width,
@@ -610,6 +633,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         }
 
         scrollView.documentView = textView
+        updateTextInsets()
     }
 
     private func setupEmptyView() {
@@ -801,7 +825,9 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         modeControl.setLabel(document.kind.formattedModeLabel, forSegment: 0)
 
         let rendered = PreviewRenderer.render(document: document, mode: mode)
-        textView.textStorage?.setAttributedString(rendered.attributedText)
+        textView.textStorage?.setAttributedString(
+            AttributedTextScaler.scaled(rendered.attributedText, by: previewFontScale)
+        )
         if document.kind == .markdown {
             rebuildMarkdownOutline(rendered.outline)
         } else {
@@ -828,6 +854,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         metaLabel.stringValue = summary
         revealButton.isEnabled = true
         copyButton.isEnabled = true
+        refreshButton.isEnabled = true
         showPreviewState()
         applyLineWrapping()
         scheduleInitialScroll(targetLine: targetLine, tabID: tabID)
@@ -839,8 +866,11 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         modeControl.isEnabled = false
         revealButton.isEnabled = true
         copyButton.isEnabled = true
+        refreshButton.isEnabled = true
 
-        textView.textStorage?.setAttributedString(SyntaxHighlighter.monospace(message))
+        textView.textStorage?.setAttributedString(
+            AttributedTextScaler.scaled(SyntaxHighlighter.monospace(message), by: previewFontScale)
+        )
         clearMarkdownOutline()
         showPreviewState()
         applyLineWrapping()
@@ -924,6 +954,7 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
         modeControl.isEnabled = false
         revealButton.isEnabled = false
         copyButton.isEnabled = false
+        refreshButton.isEnabled = false
         metaLabel.stringValue = ""
         textView.textStorage?.setAttributedString(NSAttributedString(string: ""))
         clearMarkdownOutline()
@@ -936,6 +967,8 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func applyLineWrapping() {
+        updateTextInsets()
+
         if wrapsLines {
             scrollView.hasHorizontalScroller = false
             textView.isHorizontallyResizable = false
@@ -959,6 +992,95 @@ final class PreviewWindowController: NSWindowController, NSWindowDelegate {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
+    }
+
+    private func updateTextInsets() {
+        let availableWidth = scrollView.contentSize.width > 0
+            ? scrollView.contentSize.width
+            : contentView.bounds.width
+        let horizontalInset: CGFloat
+
+        if wrapsLines, availableWidth > 0 {
+            horizontalInset = max(baseTextInset.width, floor((availableWidth - maxReadableLineWidth) / 2))
+        } else {
+            horizontalInset = baseTextInset.width
+        }
+
+        textView.textContainerInset = NSSize(width: horizontalInset, height: baseTextInset.height)
+    }
+
+    @objc func zoomInPreview(_ sender: Any?) {
+        setPreviewFontScale(previewFontScale * previewFontScaleStep)
+    }
+
+    @objc func zoomOutPreview(_ sender: Any?) {
+        setPreviewFontScale(previewFontScale / previewFontScaleStep)
+    }
+
+    @objc func resetPreviewZoom(_ sender: Any?) {
+        setPreviewFontScale(1)
+    }
+
+    @objc func refreshActiveTab(_ sender: Any?) {
+        guard let index = activeTabIndex else { return }
+
+        let url = tabs[index].url
+        do {
+            let loaded = try TextFileLoader.load(url: url)
+            tabs[index].document = loaded
+            tabs[index].errorMessage = nil
+        } catch {
+            tabs[index].document = nil
+            tabs[index].errorMessage = error.localizedDescription
+        }
+
+        rebuildTabList()
+        renderActiveTab()
+    }
+
+    private func setPreviewFontScale(_ scale: CGFloat) {
+        let nextScale = min(max(scale, minPreviewFontScale), maxPreviewFontScale)
+        guard abs(nextScale - previewFontScale) > 0.001 else { return }
+
+        let scaleRatio = nextScale / previewFontScale
+        let anchorLocation = visibleAnchorLocation()
+        let selectedRange = textView.selectedRange()
+
+        previewFontScale = nextScale
+
+        guard let textStorage = textView.textStorage, textStorage.length > 0 else {
+            applyLineWrapping()
+            return
+        }
+
+        textStorage.setAttributedString(AttributedTextScaler.scaled(textStorage, by: scaleRatio))
+        textView.setSelectedRange(clampedRange(selectedRange, upperBound: textStorage.length))
+        applyLineWrapping()
+
+        if let anchorLocation {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let textStorage = self.textView.textStorage else { return }
+                let safeLocation = min(anchorLocation, textStorage.length)
+                self.textView.scrollRangeToVisible(NSRange(location: safeLocation, length: 0))
+            }
+        }
+    }
+
+    private func visibleAnchorLocation() -> Int? {
+        guard let textStorage = textView.textStorage, textStorage.length > 0 else { return nil }
+
+        let visibleRect = textView.visibleRect
+        let anchorPoint = NSPoint(
+            x: visibleRect.minX + textView.textContainerInset.width,
+            y: visibleRect.minY + textView.textContainerInset.height
+        )
+        return min(textView.characterIndexForInsertion(at: anchorPoint), textStorage.length)
+    }
+
+    private func clampedRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        let location = min(max(range.location, 0), upperBound)
+        let length = min(max(range.length, 0), upperBound - location)
+        return NSRange(location: location, length: length)
     }
 
     private func configureIconButton(_ button: NSButton, symbol: String, tooltip: String, action: Selector) {

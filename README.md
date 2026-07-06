@@ -31,8 +31,10 @@ and no telemetry. Open a file, inspect it, copy what you need, and move on.
   highlighting.
 - Source code highlighting for common programming languages without modifying
   the original file contents.
-- Raw/format toggle, line wrap toggle, copy preview, reveal in Finder, and
-  multi-file windows.
+- Raw/format toggle, line wrap toggle, copy preview, refresh from disk, reveal
+  in Finder, and multi-file windows.
+- Centered readable line width on large displays, with `Cmd`+`+`, `Cmd`+`-`,
+  and `Cmd`+`0` preview font zoom.
 - CLI-friendly file opening, including `path:line` arguments for jumping to a
   line.
 - `peeky://` URL scheme for terminal hyperlinks and tool integrations.
