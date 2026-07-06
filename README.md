@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/PeekyIcon.svg" width="132" height="132" alt="Peeky logo">
+  <img src="Resources/PeekyIcon.png" width="132" height="132" alt="Peeky logo">
 </p>
 
 <h1 align="center">Peeky</h1>
