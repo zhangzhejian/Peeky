@@ -175,3 +175,21 @@ Good first areas to explore:
 
 This repository does not include a license file yet. Add a license before
 publishing a public release or accepting external contributions.
+
+### Markdown appearance and validation
+
+The native AppKit preview takes visual cues from
+[MarkdownUI's GitHub theme](https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Sources/MarkdownUI/Theme/Theme%2BGitHub.swift)
+and [github-markdown-css](https://github.com/sindresorhus/github-markdown-css).
+It uses 16-point body text, six heading levels, padded code blocks, quote borders,
+striped tables, nested list indentation, and read-only task markers. Foundation
+handles inline emphasis, strikethrough, code, and links. No external rendering
+library or CSS is bundled.
+
+Run `swift test` with a configured Xcode toolchain for Markdown regression tests.
+The layout test writes light/dark snapshots to `/tmp/peeky-markdown-light.png`
+and `/tmp/peeky-markdown-dark.png`. Open
+`Tests/PeekyTests/Fixtures/markdown-showcase.md` in Peeky for a visual sample.
+Block parsing remains a lightweight subset of Markdown: images, HTML, setext
+headings, and full nested block structures are not rendered. Fenced code uses
+monospaced text without syntax highlighting.

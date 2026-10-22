@@ -34,27 +34,28 @@ enum MarkdownRenderer {
         let output = NSMutableAttributedString()
         let lines = text.components(separatedBy: .newlines)
         var outline: [MarkdownOutlineItem] = []
-        var inCodeBlock = false
         var lineIndex = 0
 
         while lineIndex < lines.count {
             let rawLine = lines[lineIndex]
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inCodeBlock.toggle()
+            if let opening = parseFence(rawLine) {
+                var code: [String] = []
                 lineIndex += 1
-                continue
-            }
-
-            if inCodeBlock {
-                append(rawLine + "\n", to: output, attributes: codeBlockAttributes())
-                lineIndex += 1
+                while lineIndex < lines.count {
+                    if closesFence(lines[lineIndex], opening: opening) {
+                        lineIndex += 1
+                        break
+                    }
+                    code.append(lines[lineIndex])
+                    lineIndex += 1
+                }
+                appendBlock(code.joined(separator: "\n"), to: output, isCode: true)
                 continue
             }
 
             if trimmed.isEmpty {
-                output.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
                 lineIndex += 1
                 continue
             }
@@ -69,39 +70,78 @@ enum MarkdownRenderer {
                 outline.append(
                     MarkdownOutlineItem(
                         level: heading.level,
-                        title: heading.text,
+                        title: inlinePlainText(heading.text),
                         sourceLine: lineIndex + 1,
                         renderedLocation: output.length
                     )
                 )
-                append(heading.text + "\n", to: output, attributes: headingAttributes(level: heading.level))
+                appendInline(heading.text + "\n", to: output, attributes: headingAttributes(level: heading.level))
                 lineIndex += 1
                 continue
             }
 
             if let quote = parseBlockQuote(rawLine) {
-                append("|\u{00a0}", to: output, attributes: quoteMarkAttributes())
-                appendInline(quote + "\n", to: output, attributes: quoteTextAttributes())
+                var quotes = [quote]
+                lineIndex += 1
+                while lineIndex < lines.count, let next = parseBlockQuote(lines[lineIndex]) {
+                    quotes.append(next)
+                    lineIndex += 1
+                }
+                appendBlock(quotes.joined(separator: "\n"), to: output, isCode: false)
+                continue
+            }
+
+            if isThematicBreak(trimmed) {
+                let paragraph = NSMutableParagraphStyle()
+                let table = NSTextTable()
+                table.numberOfColumns = 1
+                table.setContentWidth(100, type: .percentageValueType)
+                let block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+                block.setWidth(1, type: .absoluteValueType, for: .border, edge: .minY)
+                block.setBorderColor(blockBorderColor)
+                paragraph.textBlocks = [block]
+                paragraph.paragraphSpacing = 16
+                append("\n", to: output, attributes: [.paragraphStyle: paragraph, .font: NSFont.systemFont(ofSize: 2)])
                 lineIndex += 1
                 continue
             }
 
             if let bullet = parseBullet(rawLine) {
-                append("\u{2022} ", to: output, attributes: listAttributes())
-                appendInline(bullet + "\n", to: output, attributes: listAttributes())
+                let attributes = listAttributes(indent: indentation(rawLine))
+                let isTask = bullet.hasPrefix("[ ] ") || bullet.lowercased().hasPrefix("[x] ")
+                let marker = isTask ? (bullet.hasPrefix("[ ] ") ? "☐" : "☑") : "•"
+                append(marker + "\t", to: output, attributes: attributes)
+                appendInline((isTask ? String(bullet.dropFirst(4)) : bullet) + "\n", to: output, attributes: attributes)
                 lineIndex += 1
                 continue
             }
 
             if let numbered = parseNumberedItem(rawLine) {
-                append(numbered.prefix, to: output, attributes: listAttributes())
-                appendInline(numbered.text + "\n", to: output, attributes: listAttributes())
+                let attributes = listAttributes(indent: indentation(rawLine))
+                append(numbered.prefix.trimmingCharacters(in: .whitespaces) + "\t", to: output, attributes: attributes)
+                appendInline(numbered.text + "\n", to: output, attributes: attributes)
                 lineIndex += 1
                 continue
             }
 
-            appendInline(rawLine + "\n", to: output, attributes: bodyAttributes())
+            var paragraph = rawLine
             lineIndex += 1
+            while lineIndex < lines.count {
+                let next = lines[lineIndex]
+                if next.trimmingCharacters(in: .whitespaces).isEmpty || parseFence(next) != nil
+                    || parseHeading(next) != nil || parseBlockQuote(next) != nil
+                    || parseBullet(next) != nil || parseNumberedItem(next) != nil
+                    || isThematicBreak(next) || parseTable(in: lines, startingAt: lineIndex) != nil {
+                    break
+                }
+                if paragraph.hasSuffix("  ") {
+                    paragraph = String(paragraph.dropLast(2)) + "\u{2028}" + next
+                } else {
+                    paragraph += " " + next
+                }
+                lineIndex += 1
+            }
+            appendInline(paragraph + "\n", to: output, attributes: bodyAttributes())
         }
 
         return MarkdownRenderResult(attributedText: output, outline: outline)
@@ -110,17 +150,15 @@ enum MarkdownRenderer {
     static func outline(in text: String) -> [MarkdownOutlineItem] {
         let lines = text.components(separatedBy: .newlines)
         var outline: [MarkdownOutlineItem] = []
-        var inCodeBlock = false
+        var fence: (marker: Character, count: Int)?
 
         for (lineIndex, rawLine) in lines.enumerated() {
-            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inCodeBlock.toggle()
+            if let opening = fence {
+                if closesFence(rawLine, opening: opening) { fence = nil }
                 continue
             }
-
-            if inCodeBlock {
+            if let opening = parseFence(rawLine) {
+                fence = opening
                 continue
             }
 
@@ -128,7 +166,7 @@ enum MarkdownRenderer {
                 outline.append(
                     MarkdownOutlineItem(
                         level: heading.level,
-                        title: heading.text,
+                        title: inlinePlainText(heading.text),
                         sourceLine: lineIndex + 1,
                         renderedLocation: nil
                     )
@@ -137,6 +175,62 @@ enum MarkdownRenderer {
         }
 
         return outline
+    }
+
+    private static func parseFence(_ line: String) -> (marker: Character, count: Int)? {
+        let trimmed = line.drop(while: { $0 == " " })
+        guard line.count - trimmed.count <= 3,
+              let marker = trimmed.first, marker == "`" || marker == "~" else { return nil }
+        let count = trimmed.prefix(while: { $0 == marker }).count
+        guard count >= 3 else { return nil }
+        if marker == "`", trimmed.dropFirst(count).contains("`") { return nil }
+        return (marker, count)
+    }
+
+    private static func closesFence(_ line: String, opening: (marker: Character, count: Int)) -> Bool {
+        guard let candidate = parseFence(line), candidate.marker == opening.marker,
+              candidate.count >= opening.count else { return false }
+        return line.trimmingCharacters(in: .whitespaces).dropFirst(candidate.count)
+            .trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private static func indentation(_ line: String) -> CGFloat {
+        CGFloat(line.prefix(while: { $0 == " " || $0 == "\t" }).reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }) * 8
+    }
+
+    private static func isThematicBreak(_ line: String) -> Bool {
+        let compact = line.filter { !$0.isWhitespace }
+        guard compact.count >= 3, let marker = compact.first, "*-_".contains(marker) else { return false }
+        return compact.allSatisfy { $0 == marker }
+    }
+
+    private static func appendBlock(_ text: String, to output: NSMutableAttributedString, isCode: Bool) {
+        let table = NSTextTable()
+        table.numberOfColumns = 1
+        table.setContentWidth(100, type: .percentageValueType)
+        let block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+        block.setWidth(16, type: .absoluteValueType, for: .padding)
+        if isCode {
+            block.backgroundColor = blockBackgroundColor
+        } else {
+            block.setWidth(4, type: .absoluteValueType, for: .border, edge: .minX)
+            block.setBorderColor(blockBorderColor)
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.textBlocks = [block]
+        paragraph.lineSpacing = 4
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: isCode ? NSFont.monospacedSystemFont(ofSize: 13.6, weight: .regular) : bodyFont(),
+            .foregroundColor: isCode ? NSColor.labelColor : NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ]
+        // Line separators keep the entire block in one padded table cell.
+        let content = text.replacingOccurrences(of: "\n", with: "\u{2028}") + "\n"
+        if isCode { append(content, to: output, attributes: attributes) }
+        else { appendInline(content, to: output, attributes: attributes) }
+        attributes = bodyAttributes()
+        attributes[.font] = NSFont.systemFont(ofSize: 2)
+        append("\n", to: output, attributes: attributes)
     }
 
     private static func parseHeading(_ line: String) -> (level: Int, text: String)? {
@@ -498,64 +592,37 @@ enum MarkdownRenderer {
         to output: NSMutableAttributedString,
         attributes: [NSAttributedString.Key: Any]
     ) {
-        var index = text.startIndex
-        var plainStart = index
-
-        func flushPlain(upTo end: String.Index) {
-            guard plainStart < end else { return }
-            append(String(text[plainStart..<end]), to: output, attributes: attributes)
+        guard let parsed = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            append(text, to: output, attributes: attributes)
+            return
         }
-
-        while index < text.endIndex {
-            if text[index] == "`",
-               let close = text[text.index(after: index)...].firstIndex(of: "`") {
-                flushPlain(upTo: index)
-                let start = text.index(after: index)
-                append(String(text[start..<close]), to: output, attributes: inlineCodeAttributes(baseAttributes: attributes))
-                index = text.index(after: close)
-                plainStart = index
-                continue
+        for run in parsed.runs {
+            var styled = attributes
+            let intent = run.inlinePresentationIntent ?? []
+            var font = attributes[.font] as? NSFont ?? bodyFont()
+            if intent.contains(.code) {
+                styled = attributes.merging(inlineCodeAttributes(baseAttributes: attributes)) { _, new in new }
+                font = styled[.font] as? NSFont ?? font
             }
-
-            if text[index...].hasPrefix("**"),
-               let close = text.range(of: "**", range: text.index(index, offsetBy: 2)..<text.endIndex) {
-                flushPlain(upTo: index)
-                let start = text.index(index, offsetBy: 2)
-                var bold = attributes
-                let baseFont = attributes[.font] as? NSFont ?? bodyFont()
-                bold[.font] = NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
-                append(String(text[start..<close.lowerBound]), to: output, attributes: bold)
-                index = close.upperBound
-                plainStart = index
-                continue
+            if intent.contains(.stronglyEmphasized) {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
             }
-
-            if text[index] == "[",
-               let closeBracket = text[index...].firstIndex(of: "]"),
-               closeBracket < text.index(before: text.endIndex),
-               text[text.index(after: closeBracket)] == "(",
-               let closeParen = text[text.index(after: closeBracket)..<text.endIndex].firstIndex(of: ")") {
-                let urlStart = text.index(closeBracket, offsetBy: 2)
-                if urlStart < closeParen {
-                    flushPlain(upTo: index)
-                    let labelStart = text.index(after: index)
-                    let label = String(text[labelStart..<closeBracket])
-                    let url = String(text[urlStart..<closeParen])
-                    var link = attributes
-                    link[.foregroundColor] = NSColor.linkColor
-                    link[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                    link[.link] = url
-                    append(label, to: output, attributes: link)
-                    index = text.index(after: closeParen)
-                    plainStart = index
-                    continue
-                }
+            if intent.contains(.emphasized) {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
             }
-
-            index = text.index(after: index)
+            styled[.font] = font
+            if intent.contains(.strikethrough) {
+                styled[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
+            if let link = run.link {
+                styled[.link] = link
+                styled[.foregroundColor] = NSColor.linkColor
+            }
+            append(String(parsed.characters[run.range]), to: output, attributes: styled)
         }
-
-        flushPlain(upTo: text.endIndex)
     }
 
     private static func append(
@@ -566,18 +633,33 @@ enum MarkdownRenderer {
         output.append(NSAttributedString(string: text, attributes: attributes))
     }
 
+    // GitHub-style neutral surfaces; dynamic colors also track appearance changes.
+    private static var blockBackgroundColor: NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(white: dark ? 0.16 : 0.96, alpha: 1)
+        }
+    }
+
+    private static var blockBorderColor: NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(white: dark ? 0.32 : 0.82, alpha: 1)
+        }
+    }
+
     private static func bodyFont() -> NSFont {
-        NSFont.systemFont(ofSize: 14)
+        NSFont.systemFont(ofSize: 16)
     }
 
     private static func tableHeaderFont() -> NSFont {
-        NSFont.systemFont(ofSize: 14, weight: .semibold)
+        NSFont.systemFont(ofSize: 16, weight: .semibold)
     }
 
     private static func bodyAttributes() -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 3
-        paragraph.paragraphSpacing = 7
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 16
 
         return [
             .font: bodyFont(),
@@ -588,15 +670,16 @@ enum MarkdownRenderer {
 
     private static func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacingBefore = level <= 2 ? 12 : 8
-        paragraph.paragraphSpacing = 6
+        paragraph.paragraphSpacingBefore = 24
+        paragraph.paragraphSpacing = 16
 
         let size: CGFloat
         switch level {
-        case 1: size = 28
-        case 2: size = 22
-        case 3: size = 18
-        default: size = 15
+        case 1: size = 32
+        case 2: size = 24
+        case 3: size = 20
+        case 4: size = 16
+        default: size = 14
         }
 
         return [
@@ -606,24 +689,11 @@ enum MarkdownRenderer {
         ]
     }
 
-    private static func codeBlockAttributes() -> [NSAttributedString.Key: Any] {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
-        paragraph.paragraphSpacing = 0
-
-        return [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
-            .backgroundColor: NSColor.textBackgroundColor.blended(withFraction: 0.08, of: .systemBlue) ?? NSColor.textBackgroundColor,
-            .paragraphStyle: paragraph
-        ]
-    }
-
     private static func inlineCodeAttributes(baseAttributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor.systemPink,
-            .backgroundColor: NSColor.textBackgroundColor.blended(withFraction: 0.08, of: .systemPink) ?? NSColor.textBackgroundColor
+            .foregroundColor: NSColor.labelColor,
+            .backgroundColor: NSColor.quaternaryLabelColor
         ]
 
         if let paragraphStyle = baseAttributes[.paragraphStyle] {
@@ -633,24 +703,13 @@ enum MarkdownRenderer {
         return attributes
     }
 
-    private static func quoteMarkAttributes() -> [NSAttributedString.Key: Any] {
-        [
-            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
-            .foregroundColor: NSColor.systemBlue
-        ]
-    }
-
-    private static func quoteTextAttributes() -> [NSAttributedString.Key: Any] {
-        var attributes = bodyAttributes()
-        attributes[.foregroundColor] = NSColor.secondaryLabelColor
-        return attributes
-    }
-
-    private static func listAttributes() -> [NSAttributedString.Key: Any] {
+    private static func listAttributes(indent: CGFloat) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 3
         paragraph.paragraphSpacing = 4
-        paragraph.headIndent = 24
+        paragraph.firstLineHeadIndent = indent
+        paragraph.headIndent = indent + 28
+        paragraph.tabStops = [NSTextTab(textAlignment: .left, location: indent + 28)]
 
         return [
             .font: bodyFont(),
@@ -677,9 +736,9 @@ enum MarkdownRenderer {
         block.setContentWidth(widthPercentage, type: .percentageValueType)
         block.setWidth(8, type: .absoluteValueType, for: .padding)
         block.setWidth(1, type: .absoluteValueType, for: .border)
-        block.setBorderColor(NSColor.separatorColor.withAlphaComponent(0.45))
-        block.backgroundColor = isHeader
-            ? NSColor.controlBackgroundColor.blended(withFraction: 0.18, of: .controlAccentColor)
+        block.setBorderColor(blockBorderColor)
+        block.backgroundColor = isHeader || rowIndex.isMultiple(of: 2)
+            ? blockBackgroundColor
             : NSColor.textBackgroundColor
         return block
     }
