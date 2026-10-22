@@ -14,6 +14,7 @@ let package = Package(
         .executableTarget(
             name: "Peeky",
             path: "Sources/Peeky"
-        )
+        ),
+        .testTarget(name: "PeekyTests", dependencies: ["Peeky"], resources: [.copy("Fixtures")])
     ]
 )
